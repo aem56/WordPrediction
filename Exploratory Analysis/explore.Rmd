@@ -1,0 +1,179 @@
+---
+title: "Milestone report"
+author: "Aristide Mooyaart"
+date: "11 June 2016"
+output: html_document
+---
+
+```{r, echo=F, include=F}
+ngram_tokenizer <- function(n = 1L, skip_word_none = TRUE, skip_word_number = FALSE) {
+    stopifnot(is.numeric(n), is.finite(n), n > 0)
+    
+    #' To avoid :: calls
+    stri_split_boundaries <- stringi::stri_split_boundaries
+    stri_join <- stringi::stri_join
+    
+    options <- stringi::stri_opts_brkiter(
+        type="word", skip_word_none = skip_word_none, skip_word_number = skip_word_number
+    )
+    
+    #' Tokenizer
+    #' 
+    #' @param x character
+    #' @return character vector with n-grams
+    function(x) {
+        stopifnot(is.character(x))
+    
+        # Split into word tokens
+        tokens <- unlist(stri_split_boundaries(x, opts_brkiter=options))
+        len <- length(tokens)
+    
+        if(all(is.na(tokens)) || len < n) {
+            # If we didn't detect any words or number of tokens is less than n return empty vector
+            character(0)
+        } else {
+            sapply(
+                1:max(1, len - n + 1),
+                function(i) stri_join(tokens[i:min(len, i + n - 1)], collapse = " ")
+            )
+        }
+    }
+}
+
+#Load Data
+con<-file("en_US.twitter.txt", "r")
+twitter<-readLines(con, encoding="UTF-8", skipNul=TRUE)
+close(con)
+con<-file("en_US.blogs.txt", "r")
+blogs<-readLines(con, encoding="UTF-8", skipNul=TRUE)
+close(con)
+con<-file("en_US.news.txt", "r")
+news<-readLines(con, encoding="UTF-8", skipNul=TRUE)
+close(con)
+```
+
+##Introduction
+This is a milestone report in the coursera data science capstone in natural language processing. In this report I detail how I analysed the data files from blogs, news and twitter ( https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip). Specifically it details:  
+* Loading the data into R, and taking samples  
+* Transforming the sample into the 'corpus' class for cleaing  
+* Cleaning the sample  
+* Tokenizing the sample into uni, bi and tri ngrams  
+* Analysing the frequency of the ngrams  
+  
+##Description of the data  
+  
+The dataset comprises of the output crawls of news sites (en_US.news.txt), blogs (en_US.blogs.txt) and twitter (en_US.twitter.txt), see below for further details on the files:
+
+```{r, cache=TRUE}
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(stringi)
+library(slam)
+library(ggplot2)
+set.seed(5000)
+
+Files<-c("en_US.blogs.txt","en_US.news.txt", "en_US.twitter.txt")
+Size<-round(file.info(Files)$size/1024^2)
+Lines<-c(length(blogs),length(news),length(twitter))
+Words<-c(sum(stri_count_words(blogs)),sum(stri_count_words(news)),sum(stri_count_words(twitter)))
+temp<-data.frame(Files,Size,Lines,Words)
+names(temp)<-c("Files","Size (Mb)","Lines","Words")
+temp
+```
+  
+##Load Data and create sample
+  
+Here I load the the txt files into R and create 10% samples of each, before merging them together.
+  
+```{r, cache=TRUE}
+#Load Data
+con<-file("en_US.twitter.txt", "r")
+twitter<-readLines(con, encoding="UTF-8", skipNul=TRUE)
+close(con)
+con<-file("en_US.blogs.txt", "r")
+blogs<-readLines(con, encoding="UTF-8", skipNul=TRUE)
+close(con)
+con<-file("en_US.news.txt", "r")
+news<-readLines(con, encoding="UTF-8", skipNul=TRUE)
+close(con)
+
+#Create 10% samples and merge together
+twittersample<-sample(twitter, size = round(length(twitter)*0.1))
+blogssample<-sample(blogs, size = round(length(blogs)*0.1))
+newssample<-sample(news, size = round(length(news)*0.1))
+sample<-c(twittersample, blogssample, newssample)
+```
+  
+##Transform sample into 'corpus' class and clean  
+  
+I first load a list of profane words for later filtering. I then make sure all the text is in ASCII format before transforming it into the 'corpus' class and cleaning it by:  
+* removing punctuation  
+* removing numbers  
+* putting everything in lower case  
+* removing stopwords (such as 'and', 'the' etc.)  
+* stemming the document  
+* removing the resultant whitespace  
+  
+This cleaning is required to facilitate the tokenization process.
+  
+```{r, cache=TRUE}
+#Load profane words
+profaneWords<-read.table("http://www.cs.cmu.edu/~biglou/resources/bad-words.txt", encoding = "UTF-8")
+
+#Make sure sample if ASCII text only (otherwise have problems with emoticons later)
+sample<-sapply(sample,function(row) iconv(row, "latin1", "ASCII", sub=""))
+
+#Transform samples into 'corpus' class
+sampleCorpus<-Corpus(VectorSource(sample), readerControl=list(reader=readPlain, language="en_US", load=TRUE))
+
+#Remove unused variables
+rm(twitter,blogs,news,twittersample,blogssample,newssample, sample)
+
+#Clean Corpos
+sampleCorpus<-tm_map(sampleCorpus, removePunctuation)
+sampleCorpus<-tm_map(sampleCorpus, removeNumbers)
+sampleCorpus<-tm_map(sampleCorpus, content_transformer(tolower), lazy = T)
+sampleCorpus<-tm_map(sampleCorpus, removeWords, profaneWords[,1])
+#sampleCorpus<-tm_map(sampleCorpus, removeWords, stopwords("english"))
+sampleCorpus<-tm_map(sampleCorpus, stemDocument, language="english")
+sampleCorpus<-tm_map(sampleCorpus, content_transformer(stripWhitespace))
+```
+  
+##Tokenize the sample
+  
+I tokenize the sample into 1, 2 and 3 ngrams, which split the text data into the common 1, 2 and 3 word combinations. I use the tokenizer function found here: https://github.com/zero323/r-snippets/blob/master/R/ngram_tokenizer.R since RWeka wouldn't install on my system.
+  
+```{r, cache=TRUE}
+#Ngram Tokenize
+Unigram<-content_transformer(ngram_tokenizer(1))
+Bigram<-content_transformer(ngram_tokenizer(2))
+Trigram<-content_transformer(ngram_tokenizer(3))
+Uni<-TermDocumentMatrix(sampleCorpus, control=list(tokenize=Unigram, wordLengths=c(1,Inf)))
+Bi<-TermDocumentMatrix(sampleCorpus, control=list(tokenize=Bigram, wordLengths=c(1,Inf)))
+Tri<-TermDocumentMatrix(sampleCorpus, control=list(tokenize=Trigram, wordLengths=c(1,Inf)))
+Uni <- sort(rowSums(as.matrix(rollup(Uni, 2, FUN=sum))), decreasing = T)
+Bi <- sort(rowSums(as.matrix(rollup(Bi, 2, FUN=sum))), decreasing = T)
+Tri <- sort(rowSums(as.matrix(rollup(Tri, 2, FUN=sum))), decreasing = T)
+```
+  
+##Frequency analysis
+  
+The frequency of the top uni, bi and tri ngrams in the sample and shown below.  
+  
+```{r, cache=TRUE}
+options(warn=-1)
+Uni2<-data.frame(word=names(Uni), frequency=Uni)
+Bi2<-data.frame(words=names(Bi), frequency=Bi)
+Tri2<-data.frame(words=names(Tri), frequency=Tri)
+ggplot(Uni2[1:10,], aes(x=word, y=frequency))+geom_bar(stat = "Identity")+ggtitle("Top Unigrams in sample")
+wordcloud(names(Uni), Uni, max.words = 50, colors=brewer.pal(6, "Dark2"))
+ggplot(Bi2[1:10,], aes(x=words, y=frequency))+geom_bar(stat = "Identity")+ggtitle("Top Bigrams in sample")
+wordcloud(names(Bi), Bi, max.words = 50, colors=brewer.pal(6, "Dark2"))
+ggplot(Tri2[1:10,], aes(x=words, y=frequency))+geom_bar(stat = "Identity")+ggtitle("Top Trigrams in sample")
+wordcloud(names(Tri), Tri, max.words = 50, colors=brewer.pal(6, "Dark2"))
+```
+  
+##Plan  
+The next step of the capstone project is to create a prediction algorithm. To do this I will use the n-gram tokenization to predict the next word associated with the previous few words. I have noticed that the removal of stop words makes the larger ngrams less representative (e.g. 'can't wait see' should probably be 'can't wait to see') so I not remove stop words in future. Once I have a working prediction model I will build a Shiny app so that anyone can type a phrase in and let the algorithm predict the next word. The processing of the dataset, took quite a long time so I may have to fine tune accuracy vs. speed in my final prediction model by limitting how much data I use to train it.
+  

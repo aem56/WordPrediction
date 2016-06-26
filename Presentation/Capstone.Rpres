@@ -1,0 +1,43 @@
+Data Science Capstone - Ngram Prediction algorithm
+========================================================
+author: Aristide Mooyaart
+width:1500
+height:1500
+
+Introduction
+========================================================
+
+The capstone assignment of the data science course was to build a shiny based app for next word prediction. It consisted of:
+
+- Sampling and cleaning the data provided - publicly available text.
+- Conducting exploratory analysis and predictive modelling on the data, based on the frequency of occurrence in English texts.
+- Optimising the predictive algorithm for speed and accuracy and writing a shiny based app
+
+Data Analysis & The Prediction Algorithm
+========================================================
+
+- The data analysis was carried out on 3 corpora of tweets, blogs and news briefs comprising of a total 2.4 million records. 1-5% samples were randomly drawn for further pre-processing, where the percentages changed depending on the speed vs accuracy tradeoff required in the prediction algorithm.
+- The sample were cleaned by ensuring it was ASCII text only, removing profane words, removing numbers, setting everything to lower case and stripping white space.
+- The sample was then tokenized into frequency tables of sequences of n words (n-grams), where the most common uni, bi, tri and quadgrams were saved in data tables for later use in prediction algorithms.
+- A Stupid Backoff (Brants et al (2007)) based prediction algorithm was constructed, where the highest available n-gram was used to predict the next word. If there isn't a matching n-gram, the algorithm 'backs off' to the second highest available n-gram, repeating until a matching n-gram is found or until only unigrams are left, at which point the most common unigrams are used.
+
+The Shiny App
+========================================================
+
+![alt text](capture.jpg)
+
+***
+- A Shiny based app was written to facilitate using the prediction algorithm.
+- The user simply enters text into the 'Text input' box and the top 5 predictions along with the score assigned by the prediction algorithm are shown.
+- Since it is intended to be used on platforms such as mobile phones, performance considerations are paramount. To improve the speed of the prediction algorithm the sample size for n-gram frequency table construction was reduced to 1% of the total corpora and the n-gram frequency tables were stored as data.tables in R.
+- The smaller sample size also allowed me to keep the n-gram frequency tables small in size (storage and RAM) and results in a prediction algorithm that runs in a maximum of 0.46 seconds on my system.
+
+Closing thoughts
+========================================================
+
+The prediction algorithm balances speed with accuracy to ensure its suitability for mobile phone platforms. However there are a few ways it could be improved in the future:
+
+- A SQL based database could be used to store the n-gram frequency tables used by the prediction algorithm, which would allow for quicker lookups of n-grams and hence faster predictions.
+- The use of more advanced prediction algorithms could be investigated such as Kneser-Ney smoothing to see whether they offer a better speed vs accuracy tradeoff.
+
+The shiny app is available [here](https://aem56.shinyapps.io/Word_Predictor/) and all my code is available [here](https://github.com/aem56/WordPrediction).
